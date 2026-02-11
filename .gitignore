@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/*
+!logs/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Compiled binaries (keep source, ignore compiled)
+tools/*/build/
+tools/*/bin/
+tools/*/*.o
+tools/*/*.a
+tools/*/*.so
+tools/*/*.dylib
+tools/*/*.exe
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Data files (optional - uncomment if you don't want to track data)
+# data/*
+
