@@ -75,7 +75,7 @@ def main():
     parser.add_argument('--timeout', type=int, default=3600, help='Solving timeout in seconds, default 3600')
     parser.add_argument('--save_temp_files', action='store_true', help='Save temporary files')
     parser.add_argument('--log_path', type=str, default='./logs', help='Log and temporary file path')
-    parser.add_argument('--mapper_args', type=str, default='', help='Mapper arguments')
+    parser.add_argument('--mapper_args', type=str, default='--mapper_type 1 --check_used_limits 3 --extract_xor 1', help='Mapper arguments')
     
     args = parser.parse_args()
     

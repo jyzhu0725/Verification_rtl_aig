@@ -52,8 +52,11 @@ The compiled binary `kissat` should be in `tools/kissat/build/` directory.
 
 Mockturtle is a logic synthesis library. We need to build the mapper tool.
 
+**Important**: If you encounter CMake errors about path mismatches (e.g., "CMakeCache.txt directory is different"), clean the build directory first:
+
 ```bash
 cd tools/mockturtle
+rm -rf build  # Clean old build files if they exist
 mkdir -p build
 cd build
 cmake ..
@@ -61,6 +64,8 @@ make my_mapper
 ```
 
 The compiled binary `my_mapper` should be in `tools/mockturtle/build/my_mapper/` directory.
+
+**Note**: If you cloned or moved this repository from another location, make sure to clean all build directories before compiling to avoid path-related CMake errors.
 
 ## Usage
 
