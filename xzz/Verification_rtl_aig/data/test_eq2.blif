@@ -1,6 +1,0 @@
-.model eqtest
-.inputs a b
-.outputs y
-.names a b y
-11 1
-.end
