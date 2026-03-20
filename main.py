@@ -68,7 +68,9 @@ def blif_to_aig(blif_path, output_aig_path):
 
 
 def miter_construction(aig1_path, aig2_path, output_miter_path):
-    abc_cmd = './tools/abc/abc -c "read_aiger {}; read_aiger {}; miter; write_aiger {};"'.format(
+    # ABC: miter with no args uses pNtk->pSpec (wrong after two read_aigers). Use
+    # read_aiger N1; miter N2 so pNtk1=Dup(N1), pNtk2=Read(N2) — same as create_sat.py.
+    abc_cmd = './tools/abc/abc -c "read_aiger {}; miter {}; write_aiger {};"'.format(
         aig1_path, aig2_path, output_miter_path)
     stdout, elapsed_time = utils.run_command(abc_cmd)
 
