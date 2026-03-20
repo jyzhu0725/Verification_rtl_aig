@@ -1,4 +1,6 @@
+import csv
 import os
+import re
 import sys
 import argparse
 import tempfile
@@ -73,6 +75,35 @@ def _work_subdir_slug(blif_file: Path, scan_root: Path) -> str:
     return str(rel.with_suffix('')).replace(os.sep, '__')
 
 
+def _blif_strash_and_gates_via_abc(blif_path: str) -> int:
+    """Match interactive: read_blif; strash; print_stats — parse the `and = N` field from stdout."""
+    abc_cmd = './tools/abc/abc -c "read_blif {}; strash; print_stats;"'.format(blif_path)
+    stdout, _elapsed = utils.run_command(abc_cmd)
+    m = re.search(r'\band\s*=\s*(\d+)', stdout)
+    if not m:
+        return -1
+    return int(m.group(1))
+
+
+CSV_FIELDNAMES = [
+    'blif_file',
+    'num_gates',
+    'abc_cec_result',
+    'abc_cec_time_sec',
+    'ours_result',
+    'ours_solve_time_sec',
+]
+
+
+def _write_results_csv(csv_path: str, rows: list) -> None:
+    """Write one summary CSV in English (overwrites existing file)."""
+    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES, extrasaction='ignore')
+        w.writeheader()
+        for row in rows:
+            w.writerow(row)
+
+
 def _run_one(
     blif_file: Path,
     log_path: str,
@@ -82,13 +113,15 @@ def _run_one(
     multi_jobs_under_user_log: bool,
     args,
     case_name: str,
+    blif_display: str,
 ):
-    """Run the full flow for one BLIF and print results."""
+    """Run the full flow for one BLIF, print results, return one CSV row dict."""
     config = {
         'log_path': log_path,
         'mapper_args': args.mapper_args
     }
     blif_str = str(blif_file)
+    and_gates = _blif_strash_and_gates_via_abc(blif_str)
 
     aig_strash_path = os.path.join(log_path, 'blif_strash.aig')
     aig_resyn_path = os.path.join(log_path, 'blif_strash_resyn2.aig')
@@ -116,6 +149,15 @@ def _run_one(
     print("========== Method 2: Ours ==========")
     print("Equivalence: {}".format(kissat_eq))
     print("Solve Time: {:.4f} s".format(ours_solve_time))
+
+    return {
+        'blif_file': blif_display,
+        'and_gates': and_gates,
+        'abc_cec_result': cec_eq,
+        'abc_cec_time_sec': round(cec_time, 6),
+        'ours_result': kissat_eq,
+        'ours_solve_time_sec': round(ours_solve_time, 6),
+    }
 
 
 def _cleanup_job(
@@ -161,6 +203,13 @@ def main():
         '--cec_match_by_name',
         action='store_true',
         help='Match PIs/POs by name in cec (by default, use -n to match by order).')
+    parser.add_argument(
+        '--csv',
+        type=str,
+        default='syn_equiv_summary.csv',
+        metavar='FILE',
+        help='Write per-case summary to this CSV (English headers). Use none to disable.',
+    )
 
     args = parser.parse_args()
     case_name = 'miter'
@@ -177,6 +226,12 @@ def main():
     user_base = args.log_path
     if user_base:
         os.makedirs(user_base, exist_ok=True)
+
+    csv_path = None
+    if args.csv and args.csv.strip().lower() not in ('none', '-'):
+        csv_path = os.path.abspath(args.csv)
+
+    result_rows = []
 
     for idx, blif_file in enumerate(blif_list):
         rel_display = blif_file
@@ -201,10 +256,11 @@ def main():
                 multi_jobs_under_user_log = False
 
         job_label = "FILE {} / {}: {}".format(idx + 1, n_jobs, rel_display)
+        blif_display = str(rel_display)
 
         job_failed = False
         try:
-            _run_one(
+            row = _run_one(
                 blif_file,
                 log_path,
                 use_temp_root,
@@ -212,7 +268,9 @@ def main():
                 multi_jobs_under_user_log=multi_jobs_under_user_log,
                 args=args,
                 case_name=case_name,
+                blif_display=blif_display,
             )
+            result_rows.append(row)
         except Exception as e:
             print("Error [{}]: {}".format(rel_display, str(e)))
             import traceback
@@ -224,7 +282,14 @@ def main():
                 args.save_temp_files, case_name,
             )
         if job_failed:
+            if csv_path and result_rows:
+                _write_results_csv(csv_path, result_rows)
+                print("Partial CSV written to {} ({} row(s)).".format(csv_path, len(result_rows)))
             sys.exit(1)
+
+    if csv_path:
+        _write_results_csv(csv_path, result_rows)
+        print("Summary CSV written to {} ({} row(s)).".format(csv_path, len(result_rows)))
 
 
 if __name__ == '__main__':
