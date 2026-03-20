@@ -3,7 +3,7 @@
 For each .blif under an input path, run ABC:
   read_blif <src>; double; ... (N times); write_blif <dst>
 
-Each `double` roughly doubles the network size; N=5 => 2^5 = 32x.
+Each `double` roughly doubles the network size; N repeats => about 2^N x (set via -n/--doubles, default 5 => 32x).
 
 Run from the repository root so ./tools/abc/abc resolves.
 """
@@ -54,7 +54,7 @@ def run_abc_double_expand(src: str, dst: str, num_doubles: int) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Batch-expand BLIF files with ABC `double` (default 5x => 32x size)."
+        description="Batch-expand BLIF files with ABC `double`; repeat count is configurable (-n/--doubles)."
     )
     parser.add_argument(
         "--input",
@@ -69,10 +69,13 @@ def main() -> None:
         help="Root directory for expanded .blif files (mirrors relative paths under input).",
     )
     parser.add_argument(
+        "-n",
         "--doubles",
         type=int,
         default=5,
-        help="Number of consecutive ABC `double` commands (default: 5 => 2^5=32x).",
+        metavar="N",
+        dest="doubles",
+        help="How many times to run ABC `double` after read_blif (default: 5 => ~2^5=32x). Use 0 for no double.",
     )
     args = parser.parse_args()
 
