@@ -17,7 +17,7 @@ from main import (
 
 
 def blif_to_resyn2_aig(blif_path, output_aig_path):
-    """同一条 BLIF：read_blif; strash; resyn2; write_aiger（resyn2 为 abc.rc 别名，需先 source）。"""
+    """One BLIF: read_blif; strash; resyn2; write_aiger (resyn2 is an alias in abc.rc; source it first)."""
     abc_cmd = (
         './tools/abc/abc -c "source ./tools/abc/abc.rc; read_blif {}; strash; resyn2; write_aiger {};"'
     ).format(blif_path, output_aig_path)
@@ -30,7 +30,7 @@ def blif_to_resyn2_aig(blif_path, output_aig_path):
 
 
 def _remove_syn_artifacts(log_path, case_name):
-    """删除本脚本在 log_path 下生成的中间文件（不删目录内其它无关文件）。"""
+    """Remove intermediate files this script creates under log_path (leave unrelated files alone)."""
     names = [
         'blif_strash.aig',
         'blif_strash_resyn2.aig',
@@ -50,25 +50,25 @@ def _remove_syn_artifacts(log_path, case_name):
 
 
 def _collect_blif_files(input_path: Path):
-    """输入为 .blif 文件则返回单元素列表；为目录则递归收集所有 .blif。"""
+    """If input is a .blif file, return a one-element list; if a directory, collect all .blif recursively."""
     input_path = input_path.resolve()
     if not input_path.exists():
-        return None, None, "路径不存在: {}".format(input_path)
+        return None, None, "Path does not exist: {}".format(input_path)
 
     if input_path.is_file():
         if input_path.suffix.lower() != '.blif':
-            return None, None, "不是 BLIF 文件: {}".format(input_path)
+            return None, None, "Not a BLIF file: {}".format(input_path)
         return [input_path], input_path.parent, None
 
     if input_path.is_dir():
         found = sorted(input_path.rglob('*.blif'))
         return found, input_path, None
 
-    return None, None, "无效路径: {}".format(input_path)
+    return None, None, "Invalid path: {}".format(input_path)
 
 
 def _work_subdir_slug(blif_file: Path, scan_root: Path) -> str:
-    """批量模式下，在 log_path 下为每个 BLIF 建独立子目录名（避免重名与冲突）。"""
+    """Per-job subdirectory name under log_path in batch mode (avoids name clashes)."""
     rel = blif_file.resolve().relative_to(scan_root.resolve())
     return str(rel.with_suffix('')).replace(os.sep, '__')
 
@@ -83,7 +83,7 @@ def _run_one(
     args,
     case_name: str,
 ):
-    """对单个 BLIF 跑完整流程并打印结果。"""
+    """Run the full flow for one BLIF and print results."""
     config = {
         'log_path': log_path,
         'mapper_args': args.mapper_args
@@ -104,7 +104,7 @@ def _run_one(
     miter_path = os.path.join(log_path, '{}.aig'.format(case_name))
     _, _ = miter_construction(aig_strash_path, aig_resyn_path, miter_path)
 
-    solve_info, _trans_time, _kissat_wall = solve(case_name, miter_path, config, args)
+    solve_info, _trans_time, _kissat_wall, _abc_wall = solve(case_name, miter_path, config, args)
     kissat_eq, kissat_proc_time = parse_kissat_result(solve_info)
 
     print("========== {} ==========".format(job_label))
@@ -169,7 +169,7 @@ def main():
         print("Error: {}".format(err))
         sys.exit(1)
     if not blif_list:
-        print("未找到任何 .blif 文件: {}".format(args.blif))
+        print("No .blif files found under: {}".format(args.blif))
         sys.exit(1)
 
     n_jobs = len(blif_list)
