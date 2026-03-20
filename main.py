@@ -13,18 +13,19 @@ MY_MAPPER = './tools/mockturtle/build/my_mapper/my_mapper'
 def baseline_solve(case_name, aig_path, config, args):
     cnf_path = os.path.join(config['log_path'], '{}.cnf'.format(case_name))
     aigtocnf_cmd = 'tools/aiger/aigtocnf {} {}'.format(aig_path, cnf_path)
-    utils.run_command(aigtocnf_cmd)
+    aigtocnf_out, aigtocnf_time = utils.run_command(aigtocnf_cmd)
     cmd_solve = 'tools/kissat/build/kissat {} --time={}'.format(cnf_path, args.timeout)
     solve_info, kissat_wall_time = utils.run_command(cmd_solve)
 
     if not args.save_temp_files:
         os.remove(cnf_path)
 
-    return solve_info, kissat_wall_time
+    return solve_info, kissat_wall_time, aigtocnf_time
 
 
 def solve(case_name, aig_path, config, args):
     trans_time = 0
+    abc_wall_total = 0.0
 
     # Map
     bench_path = os.path.join(config['log_path'], '{}.bench'.format(case_name))
@@ -38,18 +39,21 @@ def solve(case_name, aig_path, config, args):
     abc_cmd = './tools/abc/abc -c "read_bench {}; {} write_aiger {};"'.format(bench_path, syn_recipe, tmp_aig_path)
     abc_out1, abc_time = utils.run_command(abc_cmd)
     trans_time += abc_time
+    abc_wall_total += abc_time
     abc_cmd = './tools/abc/abc -c "source ./tools/abc/abc.rc; read_aiger {}; fraig; resyn2; write_aiger {};"'.format(tmp_aig_path, tmp_syned_aig_path)
     abc_out2, abc_time = utils.run_command(abc_cmd)
     trans_time += abc_time
+    abc_wall_total += abc_time
 
-    solve_info, kissat_wall_time = baseline_solve(case_name, tmp_syned_aig_path, config, args)
+    solve_info, kissat_wall_time, aigtocnf_time = baseline_solve(case_name, tmp_syned_aig_path, config, args)
+    trans_time += aigtocnf_time
 
     if not args.save_temp_files:
         os.remove(bench_path)
         os.remove(tmp_aig_path)
         os.remove(tmp_syned_aig_path)
 
-    return solve_info, trans_time, kissat_wall_time
+    return solve_info, trans_time, kissat_wall_time, abc_wall_total
 
 
 def blif_to_aig(blif_path, output_aig_path):
@@ -187,7 +191,7 @@ def main():
         miter_path = os.path.join(log_path, '{}.aig'.format(case_name))
         _, t_miter = miter_construction(aig1_path, aig2_path, miter_path)
 
-        solve_info, trans_time, kissat_wall = solve(case_name, miter_path, config, args)
+        solve_info, trans_time, kissat_wall, _abc_wall = solve(case_name, miter_path, config, args)
         kissat_eq, kissat_proc_time = parse_kissat_result(solve_info)
 
         # Only print the equivalence result and solving time for both methods.
@@ -196,10 +200,10 @@ def main():
         print("Equivalence: {}".format(cec_eq))
         print("Solve Time: {:.4f} s".format(cec_time))
 
-        # Method 2: use Kissat `process-time` as the solving time.
+        # Method 2: wall time for mapper + ABC + aigtocnf + Kissat process-time.
         print("========== Method 2: Ours ==========")
         print("Equivalence: {}".format(kissat_eq))
-        print("Solve Time: {:.4f} s".format(kissat_proc_time))
+        print("Solve Time: {:.4f} s".format(trans_time + kissat_proc_time))
 
     except Exception as e:
         print("Error: {}".format(str(e)))
