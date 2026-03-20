@@ -152,7 +152,7 @@ def _run_one(
 
     return {
         'blif_file': blif_display,
-        'and_gates': and_gates,
+        'num_gates': and_gates,
         'abc_cec_result': cec_eq,
         'abc_cec_time_sec': round(cec_time, 6),
         'ours_result': kissat_eq,
