@@ -104,8 +104,9 @@ def _run_one(
     miter_path = os.path.join(log_path, '{}.aig'.format(case_name))
     _, _ = miter_construction(aig_strash_path, aig_resyn_path, miter_path)
 
-    solve_info, _trans_time, _kissat_wall, _abc_wall = solve(case_name, miter_path, config, args)
+    solve_info, trans_time, _kissat_wall, _abc_wall = solve(case_name, miter_path, config, args)
     kissat_eq, kissat_proc_time = parse_kissat_result(solve_info)
+    ours_solve_time = trans_time + kissat_proc_time
 
     print("========== {} ==========".format(job_label))
     print("========== Method 1: ABC cec ==========")
@@ -114,7 +115,7 @@ def _run_one(
 
     print("========== Method 2: Ours ==========")
     print("Equivalence: {}".format(kissat_eq))
-    print("Solve Time: {:.4f} s".format(kissat_proc_time))
+    print("Solve Time: {:.4f} s".format(ours_solve_time))
 
 
 def _cleanup_job(
