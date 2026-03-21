@@ -27,9 +27,20 @@ def solve(case_name, aig_path, config, args):
     trans_time = 0
     abc_wall_total = 0.0
 
+    # Pre-map fraig on the miter AIG (before my_mapper)
+    pre_fraig_aig = os.path.join(config['log_path'], '{}_prefraig.aiger'.format(case_name))
+    abc_cmd_pre = './tools/abc/abc -c "read_aiger {}; fraig; write_aiger {};"'.format(aig_path, pre_fraig_aig)
+    _, abc_pre_time = utils.run_command(abc_cmd_pre)
+    trans_time += abc_pre_time
+    abc_wall_total += abc_pre_time
+    if not os.path.exists(pre_fraig_aig):
+        raise RuntimeError(
+            'Pre-map fraig failed (missing {}). ABC pre-step output may be in stderr.'.format(pre_fraig_aig))
+
     # Map
     bench_path = os.path.join(config['log_path'], '{}.bench'.format(case_name))
-    map_cmd = '{} {} --input {} --output_bench {}'.format(MY_MAPPER, config['mapper_args'], aig_path, bench_path)
+    map_cmd = '{} {} --input {} --output_bench {}'.format(
+        MY_MAPPER, config['mapper_args'], pre_fraig_aig, bench_path)
     map_out1, map_time = utils.run_command(map_cmd)
     trans_time += map_time
 
@@ -49,6 +60,7 @@ def solve(case_name, aig_path, config, args):
     trans_time += aigtocnf_time
 
     if not args.save_temp_files:
+        os.remove(pre_fraig_aig)
         os.remove(bench_path)
         os.remove(tmp_aig_path)
         os.remove(tmp_syned_aig_path)
@@ -72,6 +84,8 @@ def miter_construction(aig1_path, aig2_path, output_miter_path):
     # read_aiger N1; miter N2 so pNtk1=Dup(N1), pNtk2=Read(N2) — same as create_sat.py.
     abc_cmd = './tools/abc/abc -c "read_aiger {}; miter {}; write_aiger {};"'.format(
         aig1_path, aig2_path, output_miter_path)
+    # abc_cmd = './tools/abc/abc -c "read_aiger {}; read_aiger {}; miter; write_aiger {};"'.format(
+    #     aig1_path, aig2_path, output_miter_path)
     stdout, elapsed_time = utils.run_command(abc_cmd)
 
     if not os.path.exists(output_miter_path):

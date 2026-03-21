@@ -31,6 +31,17 @@ def blif_to_resyn2_aig(blif_path, output_aig_path):
     return output_aig_path, elapsed_time
 
 
+def aig_to_resyn2_aig(aig_path, output_aig_path):
+    """read_aiger; strash; resyn2; write_aiger (same as blif_to_resyn2_aig for AIG inputs)."""
+    abc_cmd = (
+        './tools/abc/abc -c "source ./tools/abc/abc.rc; read_aiger {}; strash; resyn2; write_aiger {};"'
+    ).format(aig_path, output_aig_path)
+    stdout, elapsed_time = utils.run_command(abc_cmd)
+    if not os.path.exists(output_aig_path):
+        raise RuntimeError("AIG (strash+resyn2) failed. ABC output: {}".format(stdout))
+    return output_aig_path, elapsed_time
+
+
 def _remove_syn_artifacts(log_path, case_name):
     """Remove intermediate files this script creates under log_path (leave unrelated files alone)."""
     names = [
@@ -53,33 +64,46 @@ def _remove_syn_artifacts(log_path, case_name):
                 pass
 
 
-def _collect_blif_files(input_path: Path):
-    """If input is a .blif file, return a one-element list; if a directory, collect all .blif recursively."""
+def _collect_input_files(input_path: Path):
+    """Return (list of (Path, 'blif'|'aig'), scan_root, err). Directory may not mix .blif and .aig."""
     input_path = input_path.resolve()
     if not input_path.exists():
         return None, None, "Path does not exist: {}".format(input_path)
 
     if input_path.is_file():
-        if input_path.suffix.lower() != '.blif':
-            return None, None, "Not a BLIF file: {}".format(input_path)
-        return [input_path], input_path.parent, None
+        suf = input_path.suffix.lower()
+        if suf == '.blif':
+            return [(input_path, 'blif')], input_path.parent, None
+        if suf == '.aig':
+            return [(input_path, 'aig')], input_path.parent, None
+        return None, None, "Not a BLIF or AIG file: {}".format(input_path)
 
     if input_path.is_dir():
-        found = sorted(input_path.rglob('*.blif'))
-        return found, input_path, None
+        blifs = sorted(input_path.rglob('*.blif'))
+        aigs = sorted(input_path.rglob('*.aig'))
+        if blifs and aigs:
+            return None, None, "Directory contains both .blif and .aig; use only one kind per directory."
+        if blifs:
+            return [(p, 'blif') for p in blifs], input_path, None
+        if aigs:
+            return [(p, 'aig') for p in aigs], input_path, None
+        return [], input_path, None
 
     return None, None, "Invalid path: {}".format(input_path)
 
 
-def _work_subdir_slug(blif_file: Path, scan_root: Path) -> str:
+def _work_subdir_slug(circuit_file: Path, scan_root: Path) -> str:
     """Per-job subdirectory name under log_path in batch mode (avoids name clashes)."""
-    rel = blif_file.resolve().relative_to(scan_root.resolve())
+    rel = circuit_file.resolve().relative_to(scan_root.resolve())
     return str(rel.with_suffix('')).replace(os.sep, '__')
 
 
-def _blif_strash_and_gates_via_abc(blif_path: str) -> int:
-    """Match interactive: read_blif; strash; print_stats — parse the `and = N` field from stdout."""
-    abc_cmd = './tools/abc/abc -c "read_blif {}; strash; print_stats;"'.format(blif_path)
+def _strash_and_gates_via_abc(path: str, is_aig: bool) -> int:
+    """print_stats after strash from BLIF or AIG."""
+    if is_aig:
+        abc_cmd = './tools/abc/abc -c "read_aiger {}; strash; print_stats;"'.format(path)
+    else:
+        abc_cmd = './tools/abc/abc -c "read_blif {}; strash; print_stats;"'.format(path)
     stdout, _elapsed = utils.run_command(abc_cmd)
     m = re.search(r'\band\s*=\s*(\d+)', stdout)
     if not m:
@@ -179,7 +203,8 @@ def _write_results_csv(csv_path: str, rows: list) -> None:
 
 
 def _run_one(
-    blif_file: Path,
+    circuit_file: Path,
+    input_kind: str,
     log_path: str,
     use_temp_root: bool,
     *,
@@ -187,22 +212,26 @@ def _run_one(
     multi_jobs_under_user_log: bool,
     args,
     case_name: str,
-    blif_display: str,
+    case_display: str,
 ):
-    """Run the full flow for one BLIF, print results, return one CSV row dict.
+    """Run the full flow for one BLIF or AIG, print results, return one CSV row dict.
 
-    Pipeline (create_sat-style): BLIF -> resyn2 AIG (clean) -> tampered copy of that AIG;
+    Pipeline (create_sat-style): BLIF/AIG -> resyn2 AIG (clean) -> tampered copy of that AIG;
     then ABC cec and Ours on clean vs tampered (expect NOT EQUIVALENT when tamper applies).
     """
     config = {
         'log_path': log_path,
         'mapper_args': args.mapper_args
     }
-    blif_str = str(blif_file)
-    and_gates = _blif_strash_and_gates_via_abc(blif_str)
+    p = str(circuit_file)
+    is_aig = input_kind == 'aig'
+    and_gates = _strash_and_gates_via_abc(p, is_aig)
 
     aig_resyn_path = os.path.join(log_path, 'blif_strash_resyn2.aig')
-    _, _ = blif_to_resyn2_aig(blif_str, aig_resyn_path)
+    if is_aig:
+        _, _ = aig_to_resyn2_aig(p, aig_resyn_path)
+    else:
+        _, _ = blif_to_resyn2_aig(p, aig_resyn_path)
     aig_tampered_path = _tamper_resyn2_aig_via_aag(aig_resyn_path, log_path)
 
     cec_stdout, cec_wall = run_abc_cec(
@@ -215,7 +244,6 @@ def _run_one(
 
     solve_info, trans_time, _kissat_wall, _abc_wall = solve(case_name, miter_path, config, args)
     kissat_eq, kissat_proc_time = parse_kissat_result(solve_info)
-    ours_solve_time = trans_time + kissat_proc_time
 
     print("========== {} ==========".format(job_label))
     print("========== Method 1: ABC cec (resyn2 vs tampered) ==========")
@@ -224,15 +252,15 @@ def _run_one(
 
     print("========== Method 2: Ours ==========")
     print("Equivalence: {}".format(kissat_eq))
-    print("Solve Time: {:.4f} s".format(ours_solve_time))
+    print("Solve Time: {:.4f} s".format(kissat_proc_time))
 
     return {
-        'blif_file': blif_display,
+        'blif_file': case_display,
         'num_gates': and_gates,
         'abc_cec_result': cec_eq,
         'abc_cec_time_sec': round(cec_time, 6),
         'ours_result': kissat_eq,
-        'ours_solve_time_sec': round(ours_solve_time, 6),
+        'ours_solve_time_sec': round(kissat_proc_time, 6),
     }
 
 
@@ -257,14 +285,15 @@ def _cleanup_job(
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Read BLIF file(s): build resyn2-synthesized AIG, tamper it (create_sat-style AAG '
-                    'AND fanin edit), then ABC cec vs miter+Kissat on clean vs tampered. '
-                    'Pass a .blif file or a directory (recursive *.blif). Requires tools/aiger/aigtoaig.')
+        description='Read BLIF or AIG: resyn2 + tamper (create_sat-style), then ABC cec vs miter+Kissat. '
+                    'A directory must contain only .blif or only .aig. Requires tools/aiger/aigtoaig.')
     parser.add_argument(
-        '--blif',
+        '--input', '--blif',
         type=str,
         required=True,
-        help='Path to one .blif file, or a directory (all .blif files under it recursively).')
+        dest='input_path',
+        metavar='PATH',
+        help='One .blif or .aig, or a directory (recursive *.blif or *.aig, not mixed).')
     parser.add_argument('--timeout', type=int, default=3600,
                         help='Time limit (seconds) for ABC cec -T and Kissat --time (default: 3600).')
     parser.add_argument('--save_temp_files', action='store_true',
@@ -291,15 +320,15 @@ def main():
     args = parser.parse_args()
     case_name = 'miter'
 
-    blif_list, scan_root, err = _collect_blif_files(Path(args.blif))
+    file_list, scan_root, err = _collect_input_files(Path(args.input_path))
     if err:
         print("Error: {}".format(err))
         sys.exit(1)
-    if not blif_list:
-        print("No .blif files found under: {}".format(args.blif))
+    if not file_list:
+        print("No .blif or .aig files found under: {}".format(args.input_path))
         sys.exit(1)
 
-    n_jobs = len(blif_list)
+    n_jobs = len(file_list)
     user_base = args.log_path
     if user_base:
         os.makedirs(user_base, exist_ok=True)
@@ -310,12 +339,12 @@ def main():
 
     result_rows = []
 
-    for idx, blif_file in enumerate(blif_list):
-        rel_display = blif_file
+    for idx, (circuit_file, input_kind) in enumerate(file_list):
+        rel_display = circuit_file
         try:
-            rel_display = blif_file.resolve().relative_to(scan_root.resolve())
+            rel_display = circuit_file.resolve().relative_to(scan_root.resolve())
         except ValueError:
-            rel_display = blif_file.name
+            rel_display = circuit_file.name
 
         if user_base is None:
             log_path = tempfile.mkdtemp(prefix='syn_equiv_')
@@ -324,7 +353,7 @@ def main():
         else:
             use_temp_root = False
             if n_jobs > 1:
-                slug = _work_subdir_slug(blif_file, scan_root)
+                slug = _work_subdir_slug(circuit_file, scan_root)
                 log_path = os.path.join(user_base, slug)
                 os.makedirs(log_path, exist_ok=True)
                 multi_jobs_under_user_log = True
@@ -333,19 +362,20 @@ def main():
                 multi_jobs_under_user_log = False
 
         job_label = "FILE {} / {}: {}".format(idx + 1, n_jobs, rel_display)
-        blif_display = str(rel_display)
+        case_display = str(rel_display)
 
         job_failed = False
         try:
             row = _run_one(
-                blif_file,
+                circuit_file,
+                input_kind,
                 log_path,
                 use_temp_root,
                 job_label=job_label,
                 multi_jobs_under_user_log=multi_jobs_under_user_log,
                 args=args,
                 case_name=case_name,
-                blif_display=blif_display,
+                case_display=case_display,
             )
             result_rows.append(row)
         except Exception as e:
